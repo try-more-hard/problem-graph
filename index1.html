@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CP Knowledge Graph</title>
+    
+    <!-- Thư viện parse Markdown và highlight code -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #252526;
+            --text-color: #d4d4d4;
+            --border-color: #3e3e42;
+            --accent-color: #007acc;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Bố cục chia 2 màn hình */
+        .sidebar {
+            width: 350px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        /* Các thành phần UI */
+        h2, h3 { color: #fff; margin-top: 0; }
+        
+        input, textarea, button {
+            background-color: #3c3c3c;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        input:focus, textarea:focus { outline: none; border-color: var(--accent-color); }
+        
+        button {
+            background-color: var(--accent-color);
+            cursor: pointer;
+            font-weight: bold;
+            border: none;
+            margin-top: 10px;
+        }
+        
+        button:hover { background-color: #005999; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+
+        .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
+        .search-box input { flex: 1; }
+
+        .card {
+            background-color: #2d2d30;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Khu vực Chat AI */
+        .chat-section {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        textarea { resize: vertical; min-height: 80px; }
+        
+        .ai-response {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border-left: 4px solid var(--accent-color);
+            border-radius: 4px;
+            line-height: 1.6;
+        }
+
+        /* Tùy chỉnh Markdown rendering */
+        pre { background-color: #1e1e1e; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        code { font-family: 'Consolas', 'Courier New', monospace; }
+    </style>
+</head>
+<body>
+
+    <!-- Bảng điều khiển bên trái -->
+    <div class="sidebar">
+        <h2>Graph Explorer</h2>
+        
+        <div class="search-box">
+            <input type="text" id="problemIdInput" placeholder="Nhập ID bài (VD: P4692)" value="">
+            <button onclick="loadProblemData()">Tra cứu</button>
+        </div>
+
+        <div class="card">
+            <h3>Bài tương tự</h3>
+            <div id="recommendationsList">
+                <i>Nhập ID bài để xem đề xuất...</i>
+            </div>
+        </div>
+
+        <div class="card" style="flex: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+            [Khu vực vẽ Đồ thị 2D bằng Canvas sẽ nằm ở đây]
+        </div>
+    </div>
+
+    <!-- Nội dung chính bên phải -->
+    <div class="main-content">
+        <div class="card">
+            <h2 id="currentProblemTitle">Chưa chọn bài toán</h2>
+            
+            <div class="chat-section">
+                <textarea id="questionInput" placeholder="Hỏi AI về giải thuật, cách cài đặt C++, hoặc độ phức tạp của bài này..."></textarea>
+                <button id="askBtn" onclick="askAI()">Gửi cho AI</button>
+            </div>
+
+            <div id="aiResponseContainer" class="ai-response" style="display: none;">
+                <div id="aiResponseContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Cấu hình Highlight.js chạy cùng Marked.js
+        marked.setOptions({
+            highlight: function(code, lang) {
+                const language = hljs.getLanguage(lang) ? lang : 'cpp';
+                return hljs.highlight(code, { language }).value;
+            }
+        });
+
+        const API_BASE = "http://localhost:8000"; // URL FastAPI của bạn
+        let currentProblemId = "";
+
+        // Hàm tra cứu bài tương tự
+        async function loadProblemData() {
+            const idInput = document.getElementById('problemIdInput').value.trim();
+            if (!idInput) return alert("Vui lòng nhập ID bài!");
+            
+            currentProblemId = idInput;
+            document.getElementById('currentProblemTitle').innerText = `Bài toán: ${currentProblemId}`;
+            const recList = document.getElementById('recommendationsList');
+            recList.innerHTML = "Đang tải...";
+
+            try {
+                console.log("NGON")
+                // Gọi API lấy bài tương tự
+                const res = await fetch(`${API_BASE}/recommend/${currentProblemId}`);
+                if (!res.ok) throw new Error("Không tìm thấy bài trong đồ thị");
+                
+                const data = await res.json();
+                
+                if (data.recommendations && data.recommendations.length > 0) {
+                    recList.innerHTML = data.recommendations.map(r => 
+                        `<div style="margin-bottom: 8px;">
+                            <strong>${r.id}</strong> (Độ khó: ${r.difficulty}) - Chung ${r.score} khái niệm
+                        </div>`
+                    ).join('');
+                } else {
+                    recList.innerHTML = "Không tìm thấy bài tương tự.";
+                }
+            } catch (error) {
+                recList.innerHTML = `<span style="color: #ff6b6b;">Lỗi: ${error.message}</span>`;
+            }
+        }
+
+        // Hàm hỏi AI
+        async function askAI() {
+            if (!currentProblemId) return alert("Vui lòng tra cứu một bài trước!");
+            
+            const question = document.getElementById('questionInput').value.trim();
+            if (!question) return alert("Vui lòng nhập câu hỏi!");
+
+            const btn = document.getElementById('askBtn');
+            const resContainer = document.getElementById('aiResponseContainer');
+            const resContent = document.getElementById('aiResponseContent');
+
+            btn.disabled = true;
+            btn.innerText = "AI đang suy nghĩ...";
+            resContainer.style.display = "block";
+            resContent.innerHTML = "<i>Đang kết nối tới LLM...</i>";
+
+            try {
+                // Gọi API Explain
+                const res = await fetch(`${API_BASE}/explain/${currentProblemId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: question })
+                });
+                
+                const data = await res.json();
+                
+                if (data.status === "success") {
+                    // Chuyển markdown AI trả về thành HTML và nhúng vào DOM
+                    resContent.innerHTML = marked.parse(data.explanation);
+                } else {
+                    throw new Error(data.detail || "Có lỗi xảy ra từ server");
+                }
+            } catch (error) {
+                resContent.innerHTML = `<span style="color: #ff6b6b;">Lỗi gọi API: ${error.message}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Gửi cho AI";
+            }
+        }
+    </script>
+</body>
+</html>
